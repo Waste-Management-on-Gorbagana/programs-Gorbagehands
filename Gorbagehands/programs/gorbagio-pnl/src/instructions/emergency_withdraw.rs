@@ -47,7 +47,9 @@ pub struct EmergencyWithdraw<'info> {
 /// Full amount is returned (no fee deduction)
 pub fn handler(
     ctx: Context<EmergencyWithdraw>,
-    season_id: u64mut ctx.accounts.season;
+    season_id: u64,
+) -> Result<()> {
+    let season = &mut ctx.accounts.season;
     let participant = &mut ctx.accounts.participant;
 
     // Validate season ID
@@ -89,9 +91,7 @@ pub fn handler(
             Transfer {
                 from: ctx.accounts.prize_pool_gor_account.to_account_info(),
                 to: ctx.accounts.participant_gor_account.to_account_info(),
-                authority: ctx.accounts.prize_pool_gor_accounts.season_gor_account.to_account_info(),
-                to: ctx.accounts.participant_gor_account.to_account_info(),
-                authority: season.to_account_info(),
+                authority: ctx.accounts.prize_pool_gor_account.to_account_info(),
             },
             signer_seeds,
         ),
