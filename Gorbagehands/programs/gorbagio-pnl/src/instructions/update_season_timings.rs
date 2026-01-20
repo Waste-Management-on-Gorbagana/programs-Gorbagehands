@@ -31,12 +31,12 @@ pub fn handler(
     let now = clock.unix_timestamp;
 
     // Validate season ID
-    require!(season.season_id == season_id, ProgramError::InvalidArgument);
+    require!(season.season_id == season_id, PnlError::InvalidRank);
 
     // Can only update if game hasn't started yet
     require!(
         now < season.game_start,
-        ProgramError::InvalidAccountData
+        PnlError::SeasonNotEnded
     );
 
     // Validate registration hours (1-72)

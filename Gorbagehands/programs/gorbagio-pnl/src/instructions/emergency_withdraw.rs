@@ -53,24 +53,24 @@ pub fn handler(
     let participant = &mut ctx.accounts.participant;
 
     // Validate season ID
-    require!(participant.season_id == season_id, ProgramError::InvalidArgument);
+    require!(participant.season_id == season_id, PnlError::InvalidRank);
 
     // Validate signer matches participant wallet
     require!(
         ctx.accounts.participant_wallet.key() == participant.wallet,
-        ProgramError::InvalidAccountOwner
+        PnlError::Unauthorized
     );
 
     // Cannot withdraw if already withdrawn
     require!(
         participant.emergency_withdrawn == false,
-        ProgramError::InvalidAccountData
+        PnlError::PrizeAlreadyClaimed
     );
 
     // Cannot withdraw if already marked as winner (prize/loss already distributed)
     require!(
         participant.is_winner == false,
-        ProgramError::InvalidAccountData
+        PnlError::NotEligibleForPrize
     );
 
     let buy_in_amount = participant.buy_in_paid;

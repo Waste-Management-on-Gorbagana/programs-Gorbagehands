@@ -179,7 +179,7 @@ fn verify_gorbagio_nft_membership(
     );
     
     // Parse the metadata account
-    let metadata = Metadata::try_deserialize(&mut metadata_data.as_ref())
+    let metadata = Metadata::safe_deserialize(&metadata_data)
         .map_err(|_| PnlError::InvalidNftOwnership)?;
     
     // Verify the mint matches

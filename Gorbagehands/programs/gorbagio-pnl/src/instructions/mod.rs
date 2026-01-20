@@ -11,7 +11,7 @@ pub mod update_season_timings;
 pub use initialize_season::*;
 pub use register_participant::*;
 pub use set_winners::*;
-pub use finalize_season::*;
+pub use close_season::*;
 pub use claim_prize::*;
 pub use update_collection_address::*;
 pub use emergency_stop::*;

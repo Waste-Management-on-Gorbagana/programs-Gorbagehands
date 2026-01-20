@@ -25,12 +25,12 @@ pub fn handler(
     let season = &mut ctx.accounts.season;
 
     // Validate season ID
-    require!(season.season_id == season_id, ProgramError::InvalidArgument);
+    require!(season.season_id == season_id, PnlError::InvalidRank);
 
     // Cannot activate emergency if already finalized
     require!(
         season.is_emergency == false,
-        ProgramError::InvalidAccountData
+        PnlError::SeasonAlreadyFinalized
     );
 
     // Activate emergency stop
