@@ -30,7 +30,7 @@ jobs:
         run: cargo build --release
         
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: gorbagio-pnl
           path: Gorbagehands/target/release/gorbagio_pnl.so
