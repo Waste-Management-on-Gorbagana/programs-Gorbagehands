@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths:
       - 'Gorbagehands/**'
+      - '.github/workflows/build-gorbagehands.yml'
   pull_request:
     branches: [ main ]
   workflow_dispatch:
