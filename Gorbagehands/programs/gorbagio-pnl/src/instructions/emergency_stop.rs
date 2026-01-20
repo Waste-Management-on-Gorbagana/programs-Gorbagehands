@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use crate::state::Season;
+use crate::errors::PnlError;
 
 #[derive(Accounts)]
 #[instruction(season_id: u64)]

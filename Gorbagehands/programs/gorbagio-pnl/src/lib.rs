@@ -50,7 +50,7 @@ pub mod gorbagio_pnl {
         second_place_wallet: Pubkey,
         third_place_wallet: Pubkey,
     ) -> Result<()> {
-        instructions::finalize_season::handler(ctx, season_id, first_place_wallet, second_place_wallet, third_place_wallet)
+        instructions::close_season::handler(ctx, season_id, first_place_wallet, second_place_wallet, third_place_wallet)
     }
 
     /// Claim prize winnings (winners only)

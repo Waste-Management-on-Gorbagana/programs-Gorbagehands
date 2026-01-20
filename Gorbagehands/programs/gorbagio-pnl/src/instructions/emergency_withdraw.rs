@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::state::{Season, Participant};
+use crate::errors::PnlError;
 
 #[derive(Accounts)]
 #[instruction(season_id: u64)]
