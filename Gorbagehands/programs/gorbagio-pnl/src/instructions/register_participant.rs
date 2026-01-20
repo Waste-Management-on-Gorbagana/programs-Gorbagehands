@@ -1,14 +1,11 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::program::invoke;
-use anchor_lang::solana_program::ed25519_program;
-use anchor_spl::token_2022::{Token2022};
-use anchor_spl::token::{self, Token, TokenAccount, Mint, Transfer};
-use anchor_spl::token_interface;
+use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use mpl_token_metadata::accounts::Metadata;
 use crate::state::*;
 use crate::errors::PnlError;
 
 #[derive(Accounts)]
-#[instruction(season_id: u64)]
+#[instruction(season_id: u64, gorbagio_token_id: u64)]
 pub struct RegisterParticipant<'info> {
     #[account(
         mut,
@@ -24,36 +21,34 @@ pub struct RegisterParticipant<'info> {
         seeds = [
             b"participant",
             season_id.to_le_bytes().as_ref(),
-            gorbagio_token_account.key().as_ref()  // Use token account as unique key
+            gorbagio_token_account.key().as_ref()
         ],
         bump
     )]
     pub participant_account: Account<'info, Participant>,
     
     /// Gorbagio NFT token account owned by participant
+    /// Optional: Only required if collection verification is enabled
     #[account(
-        constraint = gorbagio_token_account.owner == participant.key(),
+        constraint = gorbagio_token_account.owner == participant.key() @ PnlError::InvalidNftOwnership,
         constraint = gorbagio_token_account.amount >= 1 @ PnlError::InvalidNftOwnership
     )]
-    pub gorbagio_token_account: token_interface::InterfaceAccount<'info, token_interface::TokenAccount>,
+    pub gorbagio_token_account: Account<'info, TokenAccount>,
+    
+    /// Metadata account for the NFT (for collection verification)
+    /// Optional: Only used if collection verification is enabled
+    /// CHECK: Metadata is verified for the correct collection
+    pub nft_metadata: Option<UncheckedAccount<'info>>,
     
     /// The NFT mint (unique for each Gorbagio)
-    pub nft_mint: token_interface::InterfaceAccount<'info, token_interface::Mint>,
-    
-    /// Ed25519 signature verification program
-    /// CHECK: Must be Ed25519 program
-    #[account(address = ed25519_program::ID)]
-    pub ed25519_program: UncheckedAccount<'info>,
-    
-    /// Ed25519 signature instruction sysvar
-    /// CHECK: Signature verified in handler
-    pub instruction_sysvar: UncheckedAccount<'info>,
+    /// Optional: Only required if collection verification is enabled
+    pub nft_mint: Option<Account<'info, anchor_spl::token::Mint>>,
     
     /// Participant's GOR token account (source)
     #[account(
         mut,
-        constraint = participant_gor_account.mint == season.gor_token_mint,
-        constraint = participant_gor_account.owner == participant.key()
+        constraint = participant_gor_account.mint == season.gor_token_mint @ PnlError::InvalidNftOwnership,
+        constraint = participant_gor_account.owner == participant.key() @ PnlError::InvalidNftOwnership
     )]
     pub participant_gor_account: Account<'info, TokenAccount>,
     
@@ -61,7 +56,8 @@ pub struct RegisterParticipant<'info> {
     #[account(
         mut,
         seeds = [b"prize_pool_gor", season_id.to_le_bytes().as_ref()],
-        bump
+        bump,
+        token::mint = season.gor_token_mint,
     )]
     pub prize_pool_gor_account: Account<'info, TokenAccount>,
     
@@ -69,31 +65,18 @@ pub struct RegisterParticipant<'info> {
     pub participant: Signer<'info>,
     
     pub token_program: Program<'info, Token>,
-    pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
+}
+
+pub fn handler(
+    ctx: Context<RegisterParticipant>,
+    season_id: u64,
     gorbagio_token_id: u64,
 ) -> Result<()> {
     let season = &mut ctx.accounts.season;
     let participant_account = &mut ctx.accounts.participant_account;
     let clock = Clock::get()?;
     let now = clock.unix_timestamp;
-    
-    // Verify backend approval signature
-    // Message format: season_id || participant_wallet || nft_mint || gorbagio_token_id || timestamp
-    verify_backend_approval(
-        &ctx.accounts.instruction_sysvar,
-        &season.oracle,
-        season_id,
-        &ctx.accounts.participant.key(),
-        &ctx.accounts.nft_mint.key(),
-        gorbagio_token_id,
-        now
-    // Verify NFT belongs to Gorbagio collection
-    verify_collection_membership(
-        &ctx.accounts.nft_metadata,
-        &ctx.accounts.nft_mint.key(),
-        &season.gorbagio_collection_address,
-    )?;
     
     // Verify registration period is open
     require!(
@@ -112,7 +95,25 @@ pub struct RegisterParticipant<'info> {
         PnlError::MaxParticipantsReached
     );
     
-    // Transfer GOR buy-in from participant to prize pool
+    // Verify NFT collection membership only if enabled
+    // If collection_address is Pubkey::default(), verification is disabled
+    if season.gorbagio_collection_address != Pubkey::default() {
+        // Collection verification is enabled - both nft_metadata and nft_mint are required
+        require!(
+            ctx.accounts.nft_metadata.is_some() && ctx.accounts.nft_mint.is_some(),
+            PnlError::InvalidNftOwnership
+        );
+        
+        verify_gorbagio_nft_membership(
+            &ctx.accounts.nft_metadata.as_ref().unwrap(),
+            &ctx.accounts.nft_mint.as_ref().unwrap().key(),
+            &season.gorbagio_collection_address,
+        )?;
+    } else {
+        msg!("Note: NFT collection verification is disabled for this season");
+    }
+    
+    // Transfer GOR buy-in from participant to prize pool using checked arithmetic
     let transfer_ctx = CpiContext::new(
         ctx.accounts.token_program.to_account_info(),
         Transfer {
@@ -121,20 +122,22 @@ pub struct RegisterParticipant<'info> {
             authority: ctx.accounts.participant.to_account_info(),
         },
     );
-    gorbagio_token_id; // From signature
     token::transfer(transfer_ctx, season.buy_in_amount)?;
     
     // Initialize participant account
     participant_account.season_id = season_id;
     participant_account.wallet = ctx.accounts.participant.key();
-    participant_account.gorbagio_token_id = 0; // Will be set by backend
+    participant_account.gorbagio_token_id = gorbagio_token_id;
     participant_account.gorbagio_token_account = ctx.accounts.gorbagio_token_account.key();
     participant_account.registered_at = now;
     participant_account.buy_in_paid = season.buy_in_amount;
-
+    participant_account.is_winner = false;
+    participant_account.winner_rank = 0;
+    participant_account.prize_claimed = false;
+    participant_account.emergency_withdrawn = false;
     participant_account.bump = ctx.bumps.participant_account;
     
-    // Update season
+    // Update season with checked arithmetic
     season.participant_count = season.participant_count
         .checked_add(1)
         .ok_or(PnlError::ArithmeticOverflow)?;
@@ -147,74 +150,54 @@ pub struct RegisterParticipant<'info> {
         ctx.accounts.participant.key(), 
         season_id
     );
-    msg!("Buy-in paid: {} lamports", season.buy_in_amount);
-    msg!("Total prize poolGOR tokens", season.buy_in_amount);
-    msg!("Total prize pool: {} GOR token
+    msg!("Gorbagio #{} buy-in paid: {} GOR tokens", gorbagio_token_id, season.buy_in_amount);
+    msg!("Total prize pool: {} GOR tokens", season.prize_pool);
+    
     Ok(())
 }
 
-/// Verify backend approval signature for Gorbagio (owned or delegated)
-fn verify_backend_approval(
-    instruction_sysvar: &AccountInfo,
-    oracle_pubkey: &Pubkey,
-    season_id: u64,
-    participant_wallet: &Pubkey,
+/// Verify that the NFT belongs to the Gorbagio collection
+fn verify_gorbagio_nft_membership(
+    metadata_account: &UncheckedAccount,
     nft_mint: &Pubkey,
-    gorbagio_token_id: u64,
-    timestamp: i64,
+    expected_collection: &Pubkey,
 ) -> Result<()> {
-    // Build the message that was signed
-    // Format: "gorbagio_approval|{season_id}|{wallet}|{nft_mint}|{token_id}|{timestamp}"
-    let mut message = Vec::new();
-    message.extend_from_slice(b"gorbagio_approval|");
-    message.extend_from_slice(&season_id.to_le_bytes());
-    message.extend_from_slice(b"|");
-    message.extend_from_slice(participant_wallet.as_ref());
-    message.extend_from_slice(b"|");
-    message.extend_from_slice(nft_mint.as_ref());
-    message.extend_from_slice(b"|");
-    message.extend_from_slice(&gorbagio_token_id.to_le_bytes());
-    message.extend_from_slice(b"|");
-    message.extend_from_slice(&timestamp.to_le_bytes());
+    // Load metadata account
+    let metadata_data = metadata_account.data.borrow();
     
-    // Get signature from instruction sysvar
-    let ix_sysvar_data = instruction_sysvar.data.borrow();
-    
-    // Parse Ed25519 signature instruction
-    // Format: https://docs.solana.com/developing/runtime-facilities/programs#ed25519-program
+    // Check that this is a valid metadata account
     require!(
-        ix_sysvar_data.len() > 2,
-        PnlError::InvalidSignature
+        metadata_data.len() >= 1,
+        PnlError::InvalidNftOwnership
     );
     
-    let num_signatures = u16::from_le_bytes([ix_sysvar_data[0], ix_sysvar_data[1]]);
+    // Verify the metadata account is owned by metaplex token metadata program
+    let metadata_program_id = mpl_token_metadata::ID;
     require!(
-        num_signatures >= 1,
-        PnlError::InvalidSignature
+        metadata_account.owner == &metadata_program_id,
+        PnlError::InvalidNftOwnership
     );
     
-    // Signature data starts at offset 2
-    // Each signature entry: 1 byte (signature_offset) + 1 byte (signature_ix) + 2 bytes (pubkey_offset) + 2 bytes (pubkey_ix) + 2 bytes (message_data_offset) + 2 bytes (message_data_size) + 2 bytes (message_ix)
-    let sig_offset = u16::from_le_bytes([ix_sysvar_data[2], ix_sysvar_data[3]]) as usize;
-    let pubkey_offset = u16::from_le_bytes([ix_sysvar_data[6], ix_sysvar_data[7]]) as usize;
+    // Parse the metadata account
+    let metadata = Metadata::try_deserialize(&mut metadata_data.as_ref())
+        .map_err(|_| PnlError::InvalidNftOwnership)?;
     
+    // Verify the mint matches
     require!(
-        sig_offset + 64 <= ix_sysvar_data.len() && pubkey_offset + 32 <= ix_sysvar_data.len(),
-        PnlError::InvalidSignature
+        metadata.mint == *nft_mint,
+        PnlError::InvalidNftOwnership
     );
     
-    // Extract signature and public key
-    let signature = &ix_sysvar_data[sig_offset..sig_offset + 64];
-    let pubkey = &ix_sysvar_data[pubkey_offset..pubkey_offset + 32];
-    
-    // Verify the public key matches the oracle
-    let expected_pubkey = oracle_pubkey.to_bytes();
-    require!(
-        pubkey == expected_pubkey,
-        PnlError::InvalidSignature
-    );
-    
-    msg!("Backend approval verified for Gorbagio #{}", gorbagio_token_id);
+    // Verify collection membership
+    if let Some(collection) = &metadata.collection {
+        require!(
+            collection.key == *expected_collection && collection.verified,
+            PnlError::InvalidNftOwnership
+        );
+        msg!("Verified Gorbagio NFT collection membership");
+    } else {
+        return Err(PnlError::InvalidNftOwnership.into());
+    }
     
     Ok(())
 }

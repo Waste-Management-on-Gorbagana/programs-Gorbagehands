@@ -28,6 +28,11 @@ pub struct InitializeSeason<'info> {
     /// CHECK: Set by authority - must be valid SPL token mint
     pub gor_token_mint: UncheckedAccount<'info>,
     
+    /// Gorbagio NFT collection address for metadata verification (Optional)
+    /// CHECK: Set by authority - can be default (zero) to disable NFT verification
+    /// If left as default (zero), anyone can register regardless of NFT ownership
+    pub gorbagio_collection_address: Option<UncheckedAccount<'info>>,
+    
     pub system_program: Program<'info, System>,
 }
 
@@ -76,6 +81,16 @@ pub fn handler(
     season.max_participants = max_participants;
     season.winner_count = 0;
     season.gor_token_mint = ctx.accounts.gor_token_mint.key();
+    
+    // Set collection address if provided, otherwise use default (verification disabled)
+    season.gorbagio_collection_address = if let Some(collection) = &ctx.accounts.gorbagio_collection_address {
+        collection.key()
+    } else {
+        Pubkey::default()
+    };
+    
+    season.fee_claimed = false;
+    season.is_emergency = false;
     season.bump = ctx.bumps.season;
     
     msg!("Season {} initialized", season_id);
@@ -83,6 +98,12 @@ pub fn handler(
     msg!("Game: {} to {} ({} days)", season.game_start, season.game_end, game_duration_days);
     msg!("Buy-in: {} GOR tokens", buy_in_amount);
     msg!("Max participants: {}/{}", max_participants, Season::MAX_PARTICIPANTS);
+    
+    if season.gorbagio_collection_address == Pubkey::default() {
+        msg!("NFT collection verification: DISABLED");
+    } else {
+        msg!("NFT collection verification: ENABLED ({})", season.gorbagio_collection_address);
+    }
     
     Ok(())
 }

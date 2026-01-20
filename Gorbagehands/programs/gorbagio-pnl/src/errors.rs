@@ -67,4 +67,7 @@ pub enum PnlError {
     
     #[msg("Invalid backend signature")]
     InvalidSignature,
+    
+    #[msg("Claim window has closed")]
+    ClaimWindowClosed,
 }

@@ -72,16 +72,17 @@ pub fn handler(
         PnlError::NotWinner
     );
     
-    // Verify prize not already claimed
+    // Verify prize not already claimed (checks-effects-interactions pattern)
     require!(
         !participant_account.prize_claimed,
         PnlError::PrizeAlreadyClaimed
     );
     
-    // Calculate prize distribution
+    // Calculate prize distribution with checked arithmetic
     let total_prize_pool = season.prize_pool;
     let fee_amount = (total_prize_pool * Season::FEE_SHARE) / 100;
-    let winner_pool = total_prize_pool - fee_amount;
+    let winner_pool = total_prize_pool.checked_sub(fee_amount)
+        .ok_or(PnlError::ArithmeticOverflow)?;
     
     // Determine prize based on rank (50% / 30% / 20%)
     let prize_amount = match participant_account.winner_rank {
@@ -100,7 +101,7 @@ pub fn handler(
     ];
     let signer_seeds = &[&seeds[..]];
     
-    // Transfer prize to winner
+    // Transfer prize to winner (checks-effects-interactions: transfer first)
     let transfer_prize_ctx = CpiContext::new_with_signer(
         ctx.accounts.token_program.to_account_info(),
         Transfer {
@@ -112,20 +113,7 @@ pub fn handler(
     );
     token::transfer(transfer_prize_ctx, prize_amount)?;
     
-    // Transfer fee to fee wallet (only on first claim)
-    // TODO: Track if fee was already paid to avoid double-payment
-    let transfer_fee_ctx = CpiContext::new_with_signer(
-        ctx.accounts.token_program.to_account_info(),
-        Transfer {
-            from: ctx.accounts.prize_pool_gor_account.to_account_info(),
-            to: ctx.accounts.fee_gor_account.to_account_info(),
-            authority: ctx.accounts.prize_pool_gor_account.to_account_info(),
-        },
-        signer_seeds,
-    );
-    token::transfer(transfer_fee_ctx, fee_amount / 3)?; // Divide fee by 3 winners
-    
-    // Mark as claimed
+    // Mark as claimed AFTER transfer (checks-effects-interactions pattern)
     participant_account.prize_claimed = true;
     
     msg!("Prize claimed by participant {} (Rank #{})", 

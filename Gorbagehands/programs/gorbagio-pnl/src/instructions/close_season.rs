@@ -78,10 +78,17 @@ pub fn handler(
         PnlError::SeasonAlreadyFinalized
     );
     
-    // Calculate prize distribution
+    // Verify fee has not been claimed yet
+    require!(
+        !season.fee_claimed,
+        PnlError::SeasonAlreadyFinalized
+    );
+    
+    // Calculate prize distribution with checked arithmetic
     let total_prize_pool = season.prize_pool;
     let fee_amount = (total_prize_pool * Season::FEE_SHARE) / 100;
-    let winner_pool = total_prize_pool - fee_amount;
+    let winner_pool = total_prize_pool.checked_sub(fee_amount)
+        .ok_or(PnlError::ArithmeticOverflow)?;
     
     let first_place_prize = (winner_pool * Season::FIRST_PLACE_SHARE) / 100;  // 50%
     let second_place_prize = (winner_pool * Season::SECOND_PLACE_SHARE) / 100; // 30%
@@ -132,7 +139,7 @@ pub fn handler(
     );
     token::transfer(transfer_3rd_ctx, third_place_prize)?;
     
-    // Transfer fee to fee wallet
+    // Transfer fee to fee wallet (one time only, tracked by fee_claimed)
     let transfer_fee_ctx = CpiContext::new_with_signer(
         ctx.accounts.token_program.to_account_info(),
         Transfer {
@@ -144,9 +151,9 @@ pub fn handler(
     );
     token::transfer(transfer_fee_ctx, fee_amount)?;
     
-    // Update season status
+    // Update season status and mark fee as claimed
     season.status = SeasonStatus::Finalized;
-    season.winner_count = 3;
+    season.fee_claimed = true;
     
     msg!("Season {} finalized with prizes airdropped", season_id);
     msg!("1st place ({}) received: {} GOR", first_place_wallet, first_place_prize);

@@ -24,8 +24,11 @@ pub struct Season {
     pub status: SeasonStatus,
     pub participant_count: u32,
     pub max_participants: u32,
-    pub winner_count: u8, // Track number of winners (top 3)
-    pub gor_token_mint: Pubkey, // GOR token mint address
+    pub winner_count: u8,                    // Track number of winners (top 3)
+    pub gor_token_mint: Pubkey,              // GOR token mint address
+    pub gorbagio_collection_address: Pubkey, // Gorbagio NFT collection address
+    pub fee_claimed: bool,                   // Track if fee has been distributed
+    pub is_emergency: bool,                  // Emergency stop flag
     pub bump: u8,
 }
 
@@ -46,6 +49,9 @@ impl Season {
         4 + // max_participants
         1 + // winner_count
         32 + // gor_token_mint
+        32 + // gorbagio_collection_address
+        1 + // fee_claimed
+        1 + // is_emergency
         1; // bump
 
     pub const REGISTRATION_PERIOD: i64 = 72 * 60 * 60; // 72 hours
@@ -71,6 +77,10 @@ pub struct Participant {
     pub gorbagio_token_account: Pubkey,
     pub registered_at: i64,
     pub buy_in_paid: u64,
+    pub is_winner: bool,           // Whether participant is a winner
+    pub winner_rank: u8,           // 0 = not winner, 1-3 = placement
+    pub prize_claimed: bool,       // Whether prize has been claimed
+    pub emergency_withdrawn: bool, // Whether participant withdrew during emergency
     pub bump: u8,
 }
 
@@ -82,5 +92,9 @@ impl Participant {
         32 + // gorbagio_token_account
         8 + // registered_at
         8 + // buy_in_paid
+        1 + // is_winner
+        1 + // winner_rank
+        1 + // prize_claimed
+        1 + // emergency_withdrawn
         1; // bump
 }

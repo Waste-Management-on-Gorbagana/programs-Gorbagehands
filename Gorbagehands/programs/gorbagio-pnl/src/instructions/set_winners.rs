@@ -41,6 +41,12 @@ pub fn handler(
         PnlError::InvalidRank
     );
     
+    // Cannot set winners if emergency is active
+    require!(
+        season.is_emergency == false,
+        PnlError::SeasonAlreadyFinalized
+    );
+    
     // Verify season has ended
     let clock = Clock::get()?;
     require!(
@@ -48,11 +54,17 @@ pub fn handler(
         PnlError::SeasonNotEnded
     );
     
+    // Verify season is not already finalized
+    require!(
+        season.status != SeasonStatus::Finalized,
+        PnlError::SeasonAlreadyFinalized
+    );
+    
     // Mark as winner with rank
     participant_account.is_winner = true;
     participant_account.winner_rank = rank;
     
-    // Increment winner count
+    // Increment winner count with overflow protection
     season.winner_count = season.winner_count
         .checked_add(1)
         .ok_or(PnlError::ArithmeticOverflow)?;
@@ -61,6 +73,7 @@ pub fn handler(
         participant_account.wallet,
         rank
     );
+    msg!("Season {} winner count: {}/{}", _season_id, season.winner_count, Season::MAX_WINNERS);
     
     Ok(())
 }
