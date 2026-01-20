@@ -33,7 +33,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gorbagio-pnl
-          path: Gorbagehands/target/release/gorbagio_pnl.so
+          path: Gorbagehands/**/target/release/*.so
           retention-days: 30
           
       - name: Create Release
